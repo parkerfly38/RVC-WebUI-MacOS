@@ -315,5 +315,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Original project: [lj1995/VoiceConversionWebUI](https://github.com/lj1995/VoiceConversionWebUI)
+- Original project: [fumiama-Retrieval-based-Voice-Conversion-WebUI](https://github.com/fumiama/Retrieval-based-Voice-Conversion-WebUI)
 - Modified and optimized for macOS by Nevil Patel
