@@ -68,7 +68,7 @@ class Generator(object):
         manual_f0: Optional[Union[np.ndarray, list]] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         if torch.is_tensor(x):
-            x = x.cpu().numpy()
+            x = x.cpu().numpy().astype(np.float32)  # Ensure float32 for MPS compatibility
         f0_min = 50
         f0_max = 1100
         if f0_method == "pm":
@@ -103,14 +103,39 @@ class Generator(object):
             f0 = self.crepe.compute_f0(x, p_len=p_len)
         elif f0_method == "rmvpe":
             if not hasattr(self, "rmvpe"):
-                from .rmvpe import RMVPE
+                try:
+                    from .rmvpe import RMVPE
 
-                self.rmvpe = RMVPE(
-                    str(self.rmvpe_root / "rmvpe.pt"),
-                    is_half=self.is_half,
-                    device=self.device,
-                    # use_jit=self.config.use_jit,
-                )
+                    self.rmvpe = RMVPE(
+                        str(self.rmvpe_root / "rmvpe.pt"),
+                        is_half=self.is_half,
+                        device=self.device,
+                        # use_jit=self.config.use_jit,
+                    )
+                except Exception as rmvpe_error:
+                    print(f"RMVPE initialization failed: {rmvpe_error}")
+                    print("Falling back to FCPE method...")
+                    
+                    # Fallback to FCPE method
+                    from .fcpe import FCPE
+                    self.fcpe = FCPE(
+                        self.window,
+                        f0_min,
+                        f0_max,
+                        self.sr,
+                        self.device,
+                    )
+                    f0 = self.fcpe.compute_f0(x, p_len=p_len)
+                    return post_process(
+                        self.sr // self.window,
+                        f0,
+                        f0_up_key,
+                        self.x_pad,
+                        1127 * log(1 + f0_min / 700),
+                        1127 * log(1 + f0_max / 700),
+                        manual_f0,
+                    )
+            
             f0 = self.rmvpe.compute_f0(x, p_len=p_len, filter_radius=0.03)
             if "privateuseone" in str(self.device):  # clean ortruntime memory
                 del self.rmvpe.model

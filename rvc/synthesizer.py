@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from io import BytesIO
+from typing import Union
 
 import torch
 
@@ -15,11 +16,13 @@ def get_synthesizer(cpt: OrderedDict, device=torch.device("cpu")):
         encoder_dim = 256
     elif version == "v2":
         encoder_dim = 768
-    net_g = SynthesizerTrnMsNSFsid(
-        *cpt["config"],
-        encoder_dim=encoder_dim,
-        use_f0=if_f0 == 1,
-    )
+    
+    # For v2 models, append encoder_dim and use_f0 to config
+    config = list(cpt["config"])
+    if version == "v2":
+        config.extend([encoder_dim, if_f0 == 1])
+    
+    net_g = SynthesizerTrnMsNSFsid(*config)
     del net_g.enc_q
     net_g.load_state_dict(cpt["weight"], strict=False)
     net_g = net_g.float()
@@ -29,7 +32,7 @@ def get_synthesizer(cpt: OrderedDict, device=torch.device("cpu")):
 
 
 def load_synthesizer(
-    pth_path: str | BytesIO, device=torch.device("cpu")
+    pth_path: Union[str, BytesIO], device=torch.device("cpu")
 ):
     return get_synthesizer(
         torch.load(pth_path, map_location=torch.device("cpu"), weights_only=True),

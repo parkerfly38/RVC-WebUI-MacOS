@@ -35,7 +35,7 @@ class CRePE(F0Predictor):
         if p_len is None:
             p_len = wav.shape[0] // self.hop_length
         if not torch.is_tensor(wav):
-            wav = torch.from_numpy(wav)
+            wav = torch.from_numpy(wav).float()  # Ensure float32 for MPS compatibility
         # Pick a batch size that doesn't cause memory errors on your gpu
         batch_size = 512
         # Compute pitch using device 'device'

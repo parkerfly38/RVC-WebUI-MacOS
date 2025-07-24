@@ -11,6 +11,18 @@ if sys.platform == "darwin":
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
     os.environ["OMP_NUM_THREADS"] = "1"
 
+import torch
+
+# Set default tensor type to float32 for MPS compatibility
+if torch.backends.mps.is_available():
+    torch.set_default_dtype(torch.float32)
+
+# Fix for PyTorch weights_only issue
+original_torch_load = torch.load
+def patched_torch_load(f, map_location=None, pickle_module=None, weights_only=False, **kwargs):
+    return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, weights_only=False, **kwargs)
+torch.load = patched_torch_load
+
 from infer.modules.vc import VC, show_info, hash_similarity
 from infer.modules.uvr5.modules import uvr
 from infer.lib.train.process_ckpt import (
@@ -137,8 +149,20 @@ gpus = "-".join([i[0] for i in gpu_infos])
 
 
 weight_root = os.getenv("weight_root")
+if weight_root is None:
+    weight_root = os.path.join(os.getcwd(), "assets", "weights")
+    os.environ["weight_root"] = weight_root
+
 weight_uvr5_root = os.getenv("weight_uvr5_root")
+if weight_uvr5_root is None:
+    weight_uvr5_root = os.path.join(os.getcwd(), "assets", "uvr5_weights")
+    os.environ["weight_uvr5_root"] = weight_uvr5_root
+
 index_root = os.getenv("index_root")
+if index_root is None:
+    index_root = os.path.join(os.getcwd(), "logs")
+    os.environ["index_root"] = index_root
+
 outside_index_root = os.getenv("outside_index_root")
 
 names = [""]
@@ -147,26 +171,39 @@ index_paths = [""]
 
 def lookup_names(weight_root):
     global names
-    for name in os.listdir(weight_root):
-        if name.endswith(".pth"):
-            names.append(name)
+    if weight_root and os.path.exists(weight_root):
+        for name in os.listdir(weight_root):
+            if name.endswith(".pth"):
+                names.append(name)
+    else:
+        print(f"Warning: Model weights directory not found: {weight_root}")
 
 
 def lookup_indices(index_root):
     global index_paths
-    for root, _, files in os.walk(index_root, topdown=False):
-        for name in files:
-            if name.endswith(".index") and "trained" not in name:
-                index_paths.append(str(pathlib.Path(root, name)))
+    if index_root and os.path.exists(index_root):
+        for root, _, files in os.walk(index_root, topdown=False):
+            for name in files:
+                if name.endswith(".index") and "trained" not in name:
+                    index_paths.append(str(pathlib.Path(root, name)))
 
 
 lookup_names(weight_root)
 lookup_indices(index_root)
 lookup_indices(outside_index_root)
+
+# Debug: Print what models were found
+print(f"Models found: {names}")
+print(f"Weight root: {weight_root}")
+
 uvr5_names = []
-for name in os.listdir(weight_uvr5_root):
-    if name.endswith(".pth") or "onnx" in name:
-        uvr5_names.append(name.replace(".pth", ""))
+if os.path.exists(weight_uvr5_root):
+    for name in os.listdir(weight_uvr5_root):
+        if name.endswith(".pth") or "onnx" in name:
+            uvr5_names.append(name.replace(".pth", ""))
+else:
+    print(f"Warning: UVR5 weights directory not found: {weight_uvr5_root}")
+    print("UVR5 audio separation will not be available until models are downloaded.")
 
 
 def change_choices():
@@ -176,7 +213,11 @@ def change_choices():
     index_paths = [""]
     lookup_indices(index_root)
     lookup_indices(outside_index_root)
-    return {"choices": sorted(names), "__type__": "update"}, {
+    
+    # Filter out empty strings for the dropdown
+    model_choices = [name for name in sorted(names) if name.strip()]
+    
+    return {"choices": model_choices, "__type__": "update"}, {
         "choices": sorted(index_paths),
         "__type__": "update",
     }
@@ -757,8 +798,13 @@ with gr.Blocks(title="RVC WebUI") as app:
     with gr.Tabs():
         with gr.TabItem(i18n("Model Inference")):
             with gr.Row():
+                # Filter out empty strings and ensure we have valid choices
+                model_choices = [name for name in sorted(names) if name.strip()]
                 sid0 = gr.Dropdown(
-                    label=i18n("Inferencing voice"), choices=sorted(names)
+                    label=i18n("Inferencing voice"), 
+                    choices=model_choices,
+                    interactive=True,
+                    value=model_choices[0] if model_choices else None
                 )
                 with gr.Column():
                     refresh_button = gr.Button(
@@ -1082,7 +1128,36 @@ with gr.Blocks(title="RVC WebUI") as app:
                         ),
                     )
                 with gr.Column():
-                    model_choose = gr.Dropdown(label=i18n("Model"), choices=uvr5_names)
+                    if len(uvr5_names) > 0:
+                        model_choose = gr.Dropdown(
+                            label=i18n("Model"), 
+                            choices=uvr5_names, 
+                            value=uvr5_names[0],
+                            interactive=True
+                        )
+                    else:
+                        # Show detailed instructions for UVR5 models
+                        gr.Markdown("""
+⚠️ **UVR5 models not found.** 
+
+UVR5 models are required for vocal/accompaniment separation. To use this feature:
+
+1. **Option 1**: Place UVR5 model files (`.pth` format) in: `assets/uvr5_weights/`
+2. **Option 2**: The repository may have a model download script - check the documentation
+3. **Common UVR5 models** include:
+   - HP2-人声vocals+非人声instrumentals.pth
+   - HP3_all_vocals.pth
+   - VR-DeEchoAggressive.pth
+   
+After adding models, click "Convert" to refresh the dropdown.
+                        """)
+                        model_choose = gr.Dropdown(
+                            label=i18n("Model"), 
+                            choices=["Please download UVR5 models first"], 
+                            value="Please download UVR5 models first",
+                            interactive=True,
+                            info="This feature requires UVR5 models to be downloaded first."
+                        )
                     agg = gr.Slider(
                         minimum=0,
                         maximum=20,

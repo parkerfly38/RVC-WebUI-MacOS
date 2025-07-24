@@ -28,6 +28,13 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+# Fix for PyTorch weights_only issue
+import torch.serialization
+original_torch_load = torch.load
+def patched_torch_load(f, map_location=None, pickle_module=None, weights_only=False, **kwargs):
+    return original_torch_load(f, map_location=map_location, pickle_module=pickle_module, weights_only=False, **kwargs)
+torch.load = patched_torch_load
+
 if "privateuseone" not in device:
     device = "cpu"
     if torch.cuda.is_available():

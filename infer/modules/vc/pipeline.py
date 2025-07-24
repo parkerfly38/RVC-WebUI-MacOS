@@ -29,11 +29,11 @@ def change_rms(data1, sr1, data2, sr2, rate):  # 1是输入音频，2是输出�
         y=data1, frame_length=sr1 // 2 * 2, hop_length=sr1 // 2
     )  # 每半秒一个点
     rms2 = librosa.feature.rms(y=data2, frame_length=sr2 // 2 * 2, hop_length=sr2 // 2)
-    rms1 = torch.from_numpy(rms1)
+    rms1 = torch.from_numpy(rms1).float()  # Ensure float32 for MPS compatibility
     rms1 = F.interpolate(
         rms1.unsqueeze(0), size=data2.shape[0], mode="linear"
     ).squeeze()
-    rms2 = torch.from_numpy(rms2)
+    rms2 = torch.from_numpy(rms2).float()  # Ensure float32 for MPS compatibility
     rms2 = F.interpolate(
         rms2.unsqueeze(0), size=data2.shape[0], mode="linear"
     ).squeeze()
@@ -88,7 +88,7 @@ class Pipeline(object):
         version,
         protect,
     ):  # ,file_index,file_big_npy
-        feats = torch.from_numpy(audio0)
+        feats = torch.from_numpy(audio0).float()  # Ensure float32 for MPS compatibility
         if self.is_half:
             feats = feats.half()
         else:
@@ -133,7 +133,7 @@ class Pipeline(object):
             if self.is_half:
                 npy = npy.astype("float16")
             feats = (
-                torch.from_numpy(npy).unsqueeze(0).to(self.device) * index_rate
+                torch.from_numpy(npy).float().unsqueeze(0).to(self.device) * index_rate  # Ensure float32 for MPS compatibility
                 + (1 - index_rate) * feats
             )
 
@@ -269,10 +269,10 @@ class Pipeline(object):
                 pitch, pitchf = f0_method
             pitch = pitch[:p_len]
             pitchf = pitchf[:p_len]
-            if "mps" not in str(self.device) or "xpu" not in str(self.device):
-                pitchf = pitchf.astype(np.float32)
+            # Ensure float32 for MPS compatibility
+            pitchf = pitchf.astype(np.float32)
             pitch = torch.tensor(pitch, device=self.device).unsqueeze(0).long()
-            pitchf = torch.tensor(pitchf, device=self.device).unsqueeze(0).float()
+            pitchf = torch.tensor(pitchf, device=self.device, dtype=torch.float32).unsqueeze(0)
         t2 = time()
         times[1] += t2 - t1
         for t in opt_ts:

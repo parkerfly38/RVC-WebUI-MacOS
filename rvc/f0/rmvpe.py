@@ -13,6 +13,7 @@ from rvc.jit import load_inputs, get_jit_model, export_jit_model, save_pickle
 from .mel import MelSpectrogram
 from .f0 import F0Predictor
 from .models import get_rmvpe
+from .unet import UNet
 
 
 def rmvpe_jit_export(
@@ -49,16 +50,39 @@ class RMVPE(nn.Module):
             raise FileNotFoundError(f"Model file not found: {model_path}")
         
         try:
-            # Load the model using torch.load instead of torch.jit.load
+            # First try to load as a JIT model
+            try:
+                self.model = torch.jit.load(model_path, map_location=device)
+                self.model.eval()
+                if is_half:
+                    self.model = self.model.half()
+                self.model = self.model.to(device)
+                return
+            except:
+                pass
+            
+            # If JIT loading fails, try loading as a regular state dict
             state_dict = torch.load(model_path, map_location=device, weights_only=False)
-            self.model = nn.Sequential(
-                nn.Conv2d(1, 32, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(32, 32, kernel_size=3, padding=1),
-                nn.ReLU(),
-                nn.Conv2d(32, 1, kernel_size=3, padding=1)
-            )
-            self.model.load_state_dict(state_dict)
+            
+            # Check if it's a complete model or just state dict
+            if hasattr(state_dict, 'forward'):
+                self.model = state_dict
+            else:
+                # Check if it's a U-Net based model
+                if any(key.startswith('unet.') for key in state_dict.keys()):
+                    self.model = UNet(in_channels=1, out_channels=1)
+                    self.model.load_state_dict(state_dict)
+                else:
+                    # Create a simple model architecture if we only have state dict
+                    self.model = nn.Sequential(
+                        nn.Conv2d(1, 32, kernel_size=3, padding=1),
+                        nn.ReLU(),
+                        nn.Conv2d(32, 32, kernel_size=3, padding=1),
+                        nn.ReLU(),
+                        nn.Conv2d(32, 1, kernel_size=3, padding=1)
+                    )
+                    self.model.load_state_dict(state_dict)
+            
             self.model.eval()
             if is_half:
                 self.model = self.model.half()
@@ -85,7 +109,7 @@ class RMVPE(nn.Module):
         if p_len is None:
             p_len = wav.shape[0] // self.hop_length
         if not torch.is_tensor(wav):
-            wav = torch.from_numpy(wav)
+            wav = torch.from_numpy(wav).float()  # Ensure float32 for MPS compatibility
         mel = self.mel_extractor(wav.float().to(self.device).unsqueeze(0), center=True)
         hidden = self._mel2hidden(mel)
         if "privateuseone" not in str(self.device):

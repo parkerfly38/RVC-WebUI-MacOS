@@ -2,6 +2,7 @@ import pickle
 from io import BytesIO
 from collections import OrderedDict
 import os
+from typing import Union
 
 import torch
 
@@ -16,7 +17,7 @@ def save_pickle(ckpt: dict, save_path: str):
         pickle.dump(ckpt, f)
 
 
-def load_inputs(path: str | BytesIO, device: str, is_half=False):
+def load_inputs(path: Union[str, BytesIO], device: str, is_half=False):
     parm = torch.load(path, map_location=torch.device("cpu"))
     for key in parm.keys():
         parm[key] = parm[key].to(device)

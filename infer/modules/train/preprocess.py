@@ -95,6 +95,9 @@ class PreProcess:
             # audio = signal.filtfilt(self.bh, self.ah, audio)
             audio = signal.lfilter(self.bh, self.ah, audio)
 
+            # Extract basename from path for use as filename prefix
+            basename = os.path.splitext(os.path.basename(path))[0]
+            
             idx1 = 0
             for audio in self.slicer.slice(audio):
                 i = 0
@@ -103,13 +106,13 @@ class PreProcess:
                     i += 1
                     if len(audio[start:]) > self.tail * self.sr:
                         tmp_audio = audio[start : start + int(self.per * self.sr)]
-                        self.norm_write(tmp_audio, path, idx1)
+                        self.norm_write(tmp_audio, basename, idx1)
                         idx1 += 1
                     else:
                         tmp_audio = audio[start:]
                         idx1 += 1
                         break
-                self.norm_write(tmp_audio, path, idx1)
+                self.norm_write(tmp_audio, basename, idx1)
             println("%s\t-> Success" % path)
             return audio
         except Exception as e:
